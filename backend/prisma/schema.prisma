@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  displayName  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Master data
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id          String   @id @default(cuid())
+  yonOrgId    String   @unique // YonSuite org id ("org" field returned by most list APIs)
+  orgCode     String?
+  orgName     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  materials         Material[]
+  salesOrders       SalesOrder[]
+  purchaseOrders    PurchaseOrder[]
+  productionOrders  ProductionOrder[]
+  bomHeaders        BomHeader[]
+  inventoryLedgers  InventoryLedgerEntry[]
+
+  @@index([orgCode])
+}
+
+model Material {
+  id            String   @id @default(cuid())
+  materialCode  String
+  materialName  String?
+  spec          String?
+  unit          String?
+  organizationId String?
+  organization  Organization? @relation(fields: [organizationId], references: [id])
+  raw           Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([materialCode, organizationId])
+  @@index([materialCode])
+}
+
+// ---------------------------------------------------------------------------
+// Sales orders
+// ---------------------------------------------------------------------------
+
+model SalesOrder {
+  id              String   @id @default(cuid())
+  yonId           String   @unique // "id" from YonSuite
+  orderNo         String
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  customerCode    String?
+  customerName    String?
+  orderDate       DateTime?
+  status          String?
+  raw             Json
+  syncedAt        DateTime @default(now())
+
+  lines SalesOrderLine[]
+
+  @@index([orderNo])
+  @@index([organizationId])
+  @@index([orderDate])
+}
+
+model SalesOrderLine {
+  id            String     @id @default(cuid())
+  yonLineId     String     @unique
+  salesOrderId  String
+  salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  materialCode  String
+  materialName  String?
+  qty           Decimal?   @db.Decimal(18, 4)
+  unit          String?
+  deliveryDate  DateTime?
+  raw           Json
+
+  @@index([materialCode])
+  @@index([salesOrderId])
+}
+
+// ---------------------------------------------------------------------------
+// Purchase orders
+// ---------------------------------------------------------------------------
+
+model PurchaseOrder {
+  id              String   @id @default(cuid())
+  yonId           String   @unique
+  orderNo         String
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  supplierCode    String?
+  supplierName    String?
+  orderDate       DateTime?
+  status          String?
+  raw             Json
+  syncedAt        DateTime @default(now())
+
+  lines PurchaseOrderLine[]
+
+  @@index([orderNo])
+  @@index([organizationId])
+  @@index([orderDate])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  yonLineId       String        @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  materialCode    String
+  materialName    String?
+  qty             Decimal?      @db.Decimal(18, 4)
+  unit            String?
+  deliveryDate    DateTime?
+  raw             Json
+
+  @@index([materialCode])
+  @@index([purchaseOrderId])
+}
+
+// ---------------------------------------------------------------------------
+// Production orders
+// ---------------------------------------------------------------------------
+
+model ProductionOrder {
+  id              String   @id @default(cuid())
+  yonId           String   @unique
+  orderNo         String
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  materialCode    String?  // main product being produced
+  materialName    String?
+  planQty         Decimal? @db.Decimal(18, 4)
+  unit            String?
+  planStartDate   DateTime?
+  planEndDate     DateTime?
+  status          String?
+  raw             Json
+  syncedAt        DateTime @default(now())
+
+  lines ProductionOrderLine[]
+
+  @@index([orderNo])
+  @@index([organizationId])
+  @@index([materialCode])
+  @@index([planStartDate])
+}
+
+model ProductionOrderLine {
+  id                String          @id @default(cuid())
+  yonLineId         String          @unique
+  productionOrderId String
+  productionOrder   ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  materialCode      String // component/material consumed, when applicable
+  materialName      String?
+  qty               Decimal?        @db.Decimal(18, 4)
+  unit              String?
+  raw               Json
+
+  @@index([materialCode])
+  @@index([productionOrderId])
+}
+
+// ---------------------------------------------------------------------------
+// BOM (first level only)
+// ---------------------------------------------------------------------------
+
+model BomHeader {
+  id              String   @id @default(cuid())
+  yonId           String   @unique
+  materialCode    String   // parent material code
+  materialName    String?
+  version         String?
+  isActive        Boolean  @default(true)
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  raw             Json
+  syncedAt        DateTime @default(now())
+
+  lines BomLine[]
+  skus  BomSku[]
+
+  @@index([materialCode])
+  @@index([organizationId])
+}
+
+model BomLine {
+  id           String    @id @default(cuid())
+  yonLineId    String    @unique
+  bomHeaderId  String
+  bomHeader    BomHeader @relation(fields: [bomHeaderId], references: [id], onDelete: Cascade)
+  childCode    String    // 子件编码
+  childName    String?   // 子件名称
+  qty          Decimal?  @db.Decimal(18, 4) // 用量
+  unit         String?
+  raw          Json
+
+  @@index([childCode])
+  @@index([bomHeaderId])
+}
+
+// SKU codes associated with the parent material of a BOM
+model BomSku {
+  id          String    @id @default(cuid())
+  bomHeaderId String
+  bomHeader   BomHeader @relation(fields: [bomHeaderId], references: [id], onDelete: Cascade)
+  skuCode     String
+  raw         Json?
+
+  @@index([skuCode])
+  @@index([bomHeaderId])
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+// Ledger (出入库流水) — populated once the source document API is confirmed.
+model InventoryLedgerEntry {
+  id              String   @id @default(cuid())
+  yonId           String   @unique
+  materialCode    String
+  materialName    String?
+  warehouseCode   String?
+  warehouseName   String?
+  direction       String   // "IN" | "OUT"
+  qty             Decimal? @db.Decimal(18, 4)
+  balanceQty      Decimal? @db.Decimal(18, 4)
+  transactionDate DateTime?
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  raw             Json
+  syncedAt        DateTime @default(now())
+
+  @@index([materialCode])
+  @@index([warehouseCode])
+  @@index([transactionDate])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Sync bookkeeping
+// ---------------------------------------------------------------------------
+
+model SyncLog {
+  id          String   @id @default(cuid())
+  entity      String // "sales_order" | "purchase_order" | "production_order" | "bom"
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  success     Boolean?
+  recordCount Int?
+  errorMessage String?
+}
