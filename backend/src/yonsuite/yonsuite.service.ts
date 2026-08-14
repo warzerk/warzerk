@@ -59,7 +59,13 @@ export class YonSuiteService {
   }> {
     const response = await this.http.get<Record<string, unknown>>(
       this.authUrl,
-      { params: { appKey: this.appKey, appSecret: this.appSecret } },
+      {
+        params: {
+          appKey: this.appKey,
+          appSecret: this.appSecret,
+          timestamp: Date.now(),
+        },
+      },
     );
 
     const body = response.data ?? {};
