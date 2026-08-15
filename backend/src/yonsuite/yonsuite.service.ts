@@ -1,6 +1,7 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
+import { createHmac } from 'node:crypto';
 import {
   YonSuiteAccessToken,
   YonSuiteListResponse,
@@ -8,25 +9,48 @@ import {
 } from './yonsuite.types';
 
 /**
+ * YonSuite's signing scheme: sort params by name, concatenate as
+ * name+value pairs (no separators), HMAC-SHA256 the result keyed by
+ * appSecret, then base64-encode the digest. The resulting base64 string is
+ * passed as-is into axios `params` — axios percent-encodes query values
+ * itself, which is what the platform's docs describe as the final
+ * "urlEncode" step; encoding it again here would double-encode it.
+ */
+function signParams(
+  params: Record<string, string | number>,
+  appSecret: string,
+): string {
+  const raw = Object.keys(params)
+    .sort()
+    .map((key) => `${key}${params[key]}`)
+    .join('');
+  return createHmac('sha256', appSecret).update(raw, 'utf8').digest('base64');
+}
+
+/**
  * Thin client around YonSuite's OpenAPI (self-built-app auth).
  *
- * ASSUMPTIONS THAT NEED VERIFYING AGAINST THE REAL TENANT DOCS
- * (this sandbox has no network path to c3.yonyoucloud.com, so none of this
- * has been exercised against a live response — treat it as a first draft):
+ * CONFIRMED against the live tenant (via real error responses):
+ *  - `getAccessToken` requires `appKey` + `timestamp` (ms epoch) +
+ *    `signature` (HMAC-SHA256 per `signParams` above, keyed by appSecret).
+ *    appSecret itself is never sent as a request parameter.
  *
- *  1. `getAccessToken` takes appKey + appSecret as query params and returns
- *     `{ code, message, data: { access_token, expiresIn, refresh_token } }`.
- *  2. Business list endpoints are called as POST with the access_token and
- *     appKey passed as query params, tenant id passed as `ytenantId` query
- *     param (common YonSuite convention), and the filter/pagination as a
- *     JSON body (`pageIndex`, `pageSize`, plus a `simpleVOs`/condition list
- *     depending on the module — the four endpoints you gave don't all
- *     necessarily share one body shape).
+ * STILL UNVERIFIED (this sandbox has no network path to
+ * c3.yonyoucloud.com, so business-endpoint behavior hasn't been exercised
+ * against a live response yet):
+ *  - The exact shape of `{ code, message, data: { access_token, ... } }` —
+ *    field names (`access_token` vs `accessToken`) are guessed with
+ *    fallbacks in `fetchAccessToken`.
+ *  - Whether business list endpoints (sales/purchase/production orders,
+ *    BOM, stock) need the same signature scheme applied per-request, or
+ *    authenticate purely via the bearer `access_token` as currently
+ *    implemented in `post()`. If a business call comes back complaining
+ *    about a missing/invalid signature, apply `signParams` there too.
+ *  - Whether business calls are POST+JSON-body (current assumption) or
+ *    GET+query string, and their pagination/field names.
  *
- * If the real responses differ (e.g. token key is `access_token` vs
- * `accessToken`, or the business APIs expect GET + query string instead of
- * POST + body), adjust `fetchAccessToken` / `request` accordingly — the rest
- * of the app only depends on the public methods below, not on these
+ * If reality differs, adjust `fetchAccessToken` / `post` accordingly — the
+ * rest of the app only depends on the public methods below, not on these
  * internals.
  */
 @Injectable()
@@ -57,15 +81,12 @@ export class YonSuiteService {
     accessToken: string;
     expiresInSeconds: number;
   }> {
+    const signedParams = { appKey: this.appKey, timestamp: Date.now() };
+    const signature = signParams(signedParams, this.appSecret);
+
     const response = await this.http.get<Record<string, unknown>>(
       this.authUrl,
-      {
-        params: {
-          appKey: this.appKey,
-          appSecret: this.appSecret,
-          timestamp: Date.now(),
-        },
-      },
+      { params: { ...signedParams, signature } },
     );
 
     const body = response.data ?? {};
