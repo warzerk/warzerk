@@ -128,7 +128,7 @@ export function createSyncService({ store, client, config }) {
       try {
         const detail = await client.getVendorDetail(settings, row.id);
         current.detailDone += 1;
-        current.message = `正在补齐详情 ${current.detailDone}/${current.detailTotal}`;
+        current.message = `供应商列表已可查询，共 ${current.listReady || current.detailTotal} 家。正在补齐详情 ${current.detailDone}/${current.detailTotal}`;
         return detail ? mergeDetail(row, detail) : row;
       } catch (error) {
         current.detailDone += 1;
@@ -158,8 +158,12 @@ export function createSyncService({ store, client, config }) {
       const normalized = part.map((row) => normalizeVendor(row)).filter(Boolean);
       if (normalized.length) {
         current.phase = "save";
-        current.message = `正在写入详情 ${Math.min(enriched.length, current.detailTotal)}/${current.detailTotal}`;
-        await store.upsertMany(normalized);
+        current.message = `供应商列表已可查询。正在写入详情 ${Math.min(enriched.length, current.detailTotal)}/${current.detailTotal}`;
+        try {
+          await store.upsertMany(normalized);
+        } catch (error) {
+          note = note || error.message || "详情写入失败";
+        }
         current.phase = "detail";
       }
       if (stopDetail) {
@@ -192,18 +196,45 @@ export function createSyncService({ store, client, config }) {
       current.fetched = records.length;
       let detailNote = "";
       const listed = records.map((row) => normalizeVendor(row)).filter(Boolean);
+      current.listReady = listed.length;
       if (listed.length) {
+        const stamps = await store.listVendorStamps();
+        const stampById = new Map(stamps.map((row) => [row.vendorId, row]));
+        const toWrite = listed.filter((row) => {
+          const previous = stampById.get(row.vendorId);
+          return !previous || previous.pubts !== (row.pubts || "");
+        });
         current.phase = "save";
-        current.message = `正在写入供应商列表，共 ${listed.length} 家`;
-        await store.upsertMany(listed);
+        current.message = toWrite.length
+          ? `正在写入供应商列表 ${toWrite.length}/${listed.length} 家`
+          : `供应商列表已在库中，共 ${listed.length} 家`;
+        console.info(`[sync] ${current.message}`);
+        if (toWrite.length) await store.upsertMany(toWrite);
         current.upserted = listed.length;
+        if (mode === "full") {
+          current.removed = await store.retainOnly(listed.map((row) => row.vendorId));
+        }
+        const watermark = maxPubts(listed);
+        if (mode === "full") {
+          await store.setState("watermark_pubts", watermark || formatStamp(startedAt));
+        }
+        current.message = `供应商列表已可查询，共 ${listed.length} 家`;
       }
       if (settings.enrichDetail && records.length) {
+        const detailedIds = new Set(
+          (await store.listVendorStamps()).filter((row) => row.detailLoaded).map((row) => row.vendorId),
+        );
+        const pending = records.filter((row) => row?.id != null && !detailedIds.has(String(row.id)));
         current.phase = "detail";
-        current.message = `正在补齐详情 0/${records.length}`;
-        const result = await enrich(settings, records);
-        records = result.rows;
-        detailNote = result.note;
+        current.message = pending.length
+          ? `供应商列表已可查询，共 ${listed.length} 家。正在补齐详情 0/${pending.length}`
+          : `供应商列表已可查询，共 ${listed.length} 家。详情已补齐`;
+        if (pending.length) {
+          const result = await enrich(settings, pending);
+          const byId = new Map(result.rows.map((row) => [String(row.id), row]));
+          records = records.map((row) => byId.get(String(row.id)) || row);
+          detailNote = result.note;
+        }
       }
       const normalized = records.map((row) => normalizeVendor(row)).filter(Boolean);
       const upserted = normalized.length;

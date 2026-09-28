@@ -277,6 +277,7 @@ async function pollSync() {
       const sync = await api("/api/sync/status");
       state.status = { ...(state.status || {}), sync };
       renderStats();
+      if (guard % 5 === 0) await loadVendors().catch(() => {});
       if (!sync.running) break;
       await new Promise((resolve) => setTimeout(resolve, 800));
     }

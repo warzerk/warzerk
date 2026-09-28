@@ -336,6 +336,15 @@ function createSqliteStore(config) {
         return Number(row?.total || 0);
       });
     },
+    listVendorStamps() {
+      return locked(() =>
+        db.prepare("SELECT vendor_id, pubts, detail_loaded FROM vendors").all().map((row) => ({
+          vendorId: String(row.vendor_id),
+          pubts: row.pubts || "",
+          detailLoaded: Boolean(row.detail_loaded),
+        })),
+      );
+    },
     queryVendors(filter) {
       return locked(() => {
         const pageInfo = paging(filter);
@@ -805,6 +814,14 @@ async function createMssqlStore(config) {
           `);
         return deleted.rowsAffected?.[0] || 0;
       });
+    },
+    async listVendorStamps() {
+      const result = await request().query("SELECT vendor_id, pubts, detail_loaded FROM dbo.vendors");
+      return result.recordset.map((row) => ({
+        vendorId: String(row.vendor_id),
+        pubts: row.pubts || "",
+        detailLoaded: Boolean(row.detail_loaded),
+      }));
     },
     async countVendors(filter) {
       const req = request();
