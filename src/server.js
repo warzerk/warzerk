@@ -164,6 +164,7 @@ export async function start(config = loadConfig()) {
     detailPath: config.detailPath,
     detailMethod: config.detailMethod,
     debug: config.debug,
+    minGap: 450,
   });
   const syncService = createSyncService({ store, client, config });
   const app = createApp({ config, store, client, syncService });

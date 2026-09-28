@@ -79,17 +79,29 @@ function isTokenError(error) {
 
 export function detailLooksMissing(error) {
   const text = `${error?.httpStatus || ""} ${error?.code || ""} ${error?.message || ""}`;
-  return /404|405|不存在|未找到|无此|api not found|无效的请求地址|方法不|not allowed/i.test(text);
+  if (/没有查询到供应商|请检查id/.test(text)) return false;
+  return /404|405|接口不存在|api not found|无效的请求地址|方法不|not allowed/i.test(text);
 }
 
 export class YonSuiteClient {
-  constructor({ detailPath, detailMethod = "GET", timeoutMs = 30000, fetchImpl = fetch, debug = false } = {}) {
+  constructor({ detailPath, detailMethod = "GET", timeoutMs = 30000, fetchImpl = fetch, debug = false, minGap = 0 } = {}) {
     this.detailPath = detailPath || "/yonbip/digitalModel/vendor/detail";
     this.detailMethod = detailMethod === "POST" ? "POST" : "GET";
     this.timeoutMs = timeoutMs;
     this.fetchImpl = fetchImpl;
     this.debug = debug;
+    this.minGap = minGap;
+    this.nextAt = 0;
     this.cached = null;
+  }
+
+  async throttle() {
+    const gap = this.minGap || 0;
+    if (gap <= 0) return;
+    const now = Date.now();
+    const start = Math.max(now, this.nextAt || 0);
+    this.nextAt = start + gap;
+    if (start > now) await sleep(start - now);
   }
 
   invalidate() {
@@ -149,7 +161,8 @@ export class YonSuiteClient {
     return this.business(settings, "GET", path);
   }
 
-  async business(settings, method, path, body, retried = false) {
+  async business(settings, method, path, body, retried = false, rateAttempt = 0) {
+    await this.throttle();
     const token = await this.getAccessToken(settings);
     const base = `${normalizeHost(settings.gatewayHost)}/iuap-api-gateway${path.startsWith("/") ? path : `/${path}`}`;
     const url = new URL(base);
@@ -172,13 +185,22 @@ export class YonSuiteClient {
       }
       return unwrapYonResponse(json, response.status);
     } catch (error) {
+      if (error.httpStatus === 429 && rateAttempt < 6) {
+        this.minGap = Math.min(1500, Math.round((this.minGap || 400) * 1.5));
+        await sleep(1200 * (rateAttempt + 1));
+        return this.business(settings, method, path, body, retried, rateAttempt + 1);
+      }
       if (!retried && isTokenError(error)) {
         await this.getAccessToken(settings, { force: true });
-        return this.business(settings, method, path, body, true);
+        return this.business(settings, method, path, body, true, rateAttempt);
       }
       throw error;
     }
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

@@ -416,7 +416,7 @@ function compileSqliteFilter(filter) {
 
 async function createMssqlStore(config) {
   const mssql = (await import("mssql")).default;
-  const pool = await mssql.connect({
+  const poolConfig = {
     server: config.mssql.server,
     port: config.mssql.port,
     database: config.mssql.database,
@@ -428,11 +428,37 @@ async function createMssqlStore(config) {
       encrypt: config.mssql.encrypt,
       trustServerCertificate: config.mssql.trustServerCertificate,
     },
-    pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
-  });
+    pool: { max: 5, min: 0, idleTimeoutMillis: 60000 },
+  };
+  let pool = new mssql.ConnectionPool(poolConfig);
+  await pool.connect();
 
   function request() {
     return pool.request();
+  }
+
+  function connectionDead(error) {
+    return /LoggedIn state|ECONNRESET|Connection lost|ConnectionError|socket hang up|EPIPE/i.test(error?.message || "");
+  }
+
+  async function reconnect() {
+    try {
+      await pool.close();
+    } catch {
+      // 旧连接已经断开时关闭会失败，继续重建即可。
+    }
+    pool = new mssql.ConnectionPool(poolConfig);
+    await pool.connect();
+  }
+
+  async function withPool(fn) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!connectionDead(error)) throw error;
+      await reconnect();
+      return await fn();
+    }
   }
 
   function bindFilter(req, filter) {
@@ -450,43 +476,85 @@ async function createMssqlStore(config) {
     return where.length ? `WHERE ${where.join(" AND ")}` : "";
   }
 
-  function bindVendor(req, row, syncedAt) {
-    req.input("vendor_id", mssql.NVarChar(64), row.vendorId);
-    req.input("code", mssql.NVarChar(128), row.code);
-    req.input("name", mssql.NVarChar(500), row.name);
-    req.input("simplename", mssql.NVarChar(256), row.simplename);
-    req.input("helpcode", mssql.NVarChar(128), row.helpcode);
-    req.input("org_name", mssql.NVarChar(256), row.orgName);
-    req.input("vendorclass_name", mssql.NVarChar(256), row.vendorclassName);
-    req.input("creditcode", mssql.NVarChar(64), row.creditcode);
-    req.input("contactphone", mssql.NVarChar(64), row.contactphone);
-    req.input("address", mssql.NVarChar(1000), row.address);
-    req.input("stopped", mssql.Bit, row.stopped ? 1 : 0);
-    req.input("accessstatus", mssql.NVarChar(32), row.accessstatus);
-    req.input("pubts", mssql.NVarChar(40), row.pubts);
-    req.input("detail_loaded", mssql.Bit, row.detailLoaded ? 1 : 0);
-    req.input("detail_error", mssql.NVarChar(1000), row.detailError || null);
-    req.input("payload", mssql.NVarChar(mssql.MAX), JSON.stringify(row.payload || {}));
-    req.input("synced_at", mssql.DateTime2, syncedAt);
+  function clipColumn(value, max) {
+    if (value == null || value === "") return null;
+    const text = String(value);
+    return text.length > max ? text.slice(0, max) : text;
   }
 
-  const upsertSql = `
-    UPDATE dbo.vendors SET
-      code = @code, name = @name, simplename = @simplename, helpcode = @helpcode,
-      org_name = @org_name, vendorclass_name = @vendorclass_name, creditcode = @creditcode,
-      contactphone = @contactphone, address = @address, stopped = @stopped,
-      accessstatus = @accessstatus, pubts = @pubts, detail_loaded = @detail_loaded,
-      detail_error = @detail_error, payload = @payload, synced_at = @synced_at
-    WHERE vendor_id = @vendor_id;
-    IF @@ROWCOUNT = 0
-    INSERT INTO dbo.vendors (
+  function openJsonVendor(row) {
+    return {
+      vendorId: clipColumn(row.vendorId, 64),
+      code: clipColumn(row.code, 128),
+      name: clipColumn(row.name, 500),
+      simplename: clipColumn(row.simplename, 256),
+      helpcode: clipColumn(row.helpcode, 128),
+      orgName: clipColumn(row.orgName, 256),
+      vendorclassName: clipColumn(row.vendorclassName, 256),
+      creditcode: clipColumn(row.creditcode, 64),
+      contactphone: clipColumn(row.contactphone, 64),
+      address: clipColumn(row.address, 1000),
+      stopped: row.stopped ? 1 : 0,
+      accessstatus: clipColumn(row.accessstatus, 32),
+      pubts: clipColumn(row.pubts, 40),
+      detailLoaded: row.detailLoaded ? 1 : 0,
+      detailError: clipColumn(row.detailError, 1000),
+      payloadJson: JSON.stringify(row.payload || {}),
+    };
+  }
+
+  const mergeSql = `
+    MERGE dbo.vendors AS target
+    USING (
+      SELECT vendor_id, code, name, simplename, helpcode, org_name, vendorclass_name,
+             creditcode, contactphone, address, stopped, accessstatus, pubts,
+             detail_loaded, detail_error, payload
+      FROM OPENJSON(@payload) WITH (
+        vendor_id NVARCHAR(64) '$.vendorId',
+        code NVARCHAR(128) '$.code',
+        name NVARCHAR(500) '$.name',
+        simplename NVARCHAR(256) '$.simplename',
+        helpcode NVARCHAR(128) '$.helpcode',
+        org_name NVARCHAR(256) '$.orgName',
+        vendorclass_name NVARCHAR(256) '$.vendorclassName',
+        creditcode NVARCHAR(64) '$.creditcode',
+        contactphone NVARCHAR(64) '$.contactphone',
+        address NVARCHAR(1000) '$.address',
+        stopped BIT '$.stopped',
+        accessstatus NVARCHAR(32) '$.accessstatus',
+        pubts NVARCHAR(40) '$.pubts',
+        detail_loaded BIT '$.detailLoaded',
+        detail_error NVARCHAR(1000) '$.detailError',
+        payload NVARCHAR(MAX) '$.payloadJson'
+      )
+    ) AS source
+    ON target.vendor_id = source.vendor_id
+    WHEN MATCHED THEN UPDATE SET
+      code = source.code,
+      name = source.name,
+      simplename = source.simplename,
+      helpcode = source.helpcode,
+      org_name = source.org_name,
+      vendorclass_name = source.vendorclass_name,
+      creditcode = source.creditcode,
+      contactphone = source.contactphone,
+      address = source.address,
+      stopped = source.stopped,
+      accessstatus = source.accessstatus,
+      pubts = source.pubts,
+      detail_loaded = source.detail_loaded,
+      detail_error = source.detail_error,
+      payload = source.payload,
+      synced_at = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (
       vendor_id, code, name, simplename, helpcode, org_name, vendorclass_name,
       creditcode, contactphone, address, stopped, accessstatus, pubts,
       detail_loaded, detail_error, payload, synced_at
     ) VALUES (
-      @vendor_id, @code, @name, @simplename, @helpcode, @org_name, @vendorclass_name,
-      @creditcode, @contactphone, @address, @stopped, @accessstatus, @pubts,
-      @detail_loaded, @detail_error, @payload, @synced_at
+      source.vendor_id, source.code, source.name, source.simplename, source.helpcode,
+      source.org_name, source.vendorclass_name, source.creditcode, source.contactphone,
+      source.address, source.stopped, source.accessstatus, source.pubts,
+      source.detail_loaded, source.detail_error, source.payload, SYSUTCDATETIME()
     );
   `;
 
@@ -665,44 +733,55 @@ async function createMssqlStore(config) {
     },
     async upsertMany(rows) {
       if (!rows.length) return 0;
-      const transaction = new mssql.Transaction(pool);
-      await transaction.begin();
-      try {
-        const now = new Date();
-        for (const row of rows) {
-          const req = new mssql.Request(transaction);
-          bindVendor(req, row, now);
-          await req.query(upsertSql);
-        }
-        await transaction.commit();
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
+      const unique = [];
+      const seen = new Set();
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const id = rows[index]?.vendorId == null ? "" : String(rows[index].vendorId);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        unique.push(rows[index]);
       }
-      return rows.length;
+      unique.reverse();
+      const chunks = [];
+      let chunk = [];
+      let bytes = 0;
+      for (const row of unique) {
+        const item = openJsonVendor(row);
+        const size = (item.payloadJson?.length || 0) + 400;
+        if (chunk.length && (chunk.length >= 40 || bytes + size > 280000)) {
+          chunks.push(chunk);
+          chunk = [];
+          bytes = 0;
+        }
+        chunk.push(item);
+        bytes += size;
+      }
+      if (chunk.length) chunks.push(chunk);
+      for (const part of chunks) {
+        const payload = JSON.stringify(part);
+        await withPool(async () => {
+          await request()
+            .input("payload", mssql.NVarChar(mssql.MAX), payload)
+            .query(mergeSql);
+        });
+      }
+      return unique.length;
     },
     async retainOnly(ids) {
-      if (!ids.length) return 0;
-      const transaction = new mssql.Transaction(pool);
-      await transaction.begin();
-      try {
-        await new mssql.Request(transaction).query(
-          "CREATE TABLE #keep_ids (vendor_id NVARCHAR(64) NOT NULL PRIMARY KEY)",
-        );
-        for (const id of ids) {
-          await new mssql.Request(transaction)
-            .input("vendor_id", mssql.NVarChar(64), id)
-            .query("INSERT INTO #keep_ids (vendor_id) VALUES (@vendor_id)");
-        }
-        const deleted = await new mssql.Request(transaction).query(
-          "DELETE FROM dbo.vendors WHERE vendor_id NOT IN (SELECT vendor_id FROM #keep_ids)",
-        );
-        await transaction.commit();
+      const keep = [...new Set(ids.map((id) => (id == null ? "" : String(id))).filter(Boolean))];
+      if (!keep.length) return 0;
+      return withPool(async () => {
+        const deleted = await request()
+          .input("ids", mssql.NVarChar(mssql.MAX), JSON.stringify(keep))
+          .query(`
+            DELETE v
+            FROM dbo.vendors AS v
+            WHERE NOT EXISTS (
+              SELECT 1 FROM OPENJSON(@ids) AS ids WHERE ids.[value] = v.vendor_id
+            );
+          `);
         return deleted.rowsAffected?.[0] || 0;
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
-      }
+      });
     },
     async countVendors(filter) {
       const req = request();

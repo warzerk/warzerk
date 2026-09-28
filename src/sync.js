@@ -120,7 +120,10 @@ export function createSyncService({ store, client, config }) {
     const failureCount = new Map();
     current.detailTotal = rows.length;
     current.detailDone = 0;
-    const enriched = await mapPool(rows, config.detailConcurrency || 4, async (row) => {
+    const batchSize = 24;
+    const enriched = [];
+
+    async function worker(row) {
       if (stopDetail || row?.id == null) return row;
       try {
         const detail = await client.getVendorDetail(settings, row.id);
@@ -135,6 +138,9 @@ export function createSyncService({ store, client, config }) {
           note = message;
           return row;
         }
+        if (/没有查询到供应商|请检查id|429|调用频率/.test(message)) {
+          return { ...row, detailError: message };
+        }
         const count = (failureCount.get(message) || 0) + 1;
         failureCount.set(message, count);
         if (count >= 3) {
@@ -143,7 +149,24 @@ export function createSyncService({ store, client, config }) {
         }
         return { ...row, detailError: message };
       }
-    });
+    }
+
+    for (let offset = 0; offset < rows.length; offset += batchSize) {
+      const slice = rows.slice(offset, offset + batchSize);
+      const part = await mapPool(slice, config.detailConcurrency || 4, worker);
+      enriched.push(...part);
+      const normalized = part.map((row) => normalizeVendor(row)).filter(Boolean);
+      if (normalized.length) {
+        current.phase = "save";
+        current.message = `正在写入详情 ${Math.min(enriched.length, current.detailTotal)}/${current.detailTotal}`;
+        await store.upsertMany(normalized);
+        current.phase = "detail";
+      }
+      if (stopDetail) {
+        enriched.push(...rows.slice(offset + slice.length));
+        break;
+      }
+    }
     return { rows: enriched, note };
   }
 
@@ -168,6 +191,13 @@ export function createSyncService({ store, client, config }) {
       let records = [...merged.values()];
       current.fetched = records.length;
       let detailNote = "";
+      const listed = records.map((row) => normalizeVendor(row)).filter(Boolean);
+      if (listed.length) {
+        current.phase = "save";
+        current.message = `正在写入供应商列表，共 ${listed.length} 家`;
+        await store.upsertMany(listed);
+        current.upserted = listed.length;
+      }
       if (settings.enrichDetail && records.length) {
         current.phase = "detail";
         current.message = `正在补齐详情 0/${records.length}`;
@@ -176,9 +206,9 @@ export function createSyncService({ store, client, config }) {
         detailNote = result.note;
       }
       const normalized = records.map((row) => normalizeVendor(row)).filter(Boolean);
+      const upserted = normalized.length;
       current.phase = "save";
-      current.message = `正在写入数据库，共 ${normalized.length} 家供应商`;
-      const upserted = await store.upsertMany(normalized);
+      current.message = `供应商已写入数据库，共 ${normalized.length} 家`;
       let removed = 0;
       if (mode === "full") {
         if (normalized.length > 0) {

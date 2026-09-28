@@ -3,7 +3,7 @@ import test from "node:test";
 import { formatCell, labelFor } from "../src/fields.js";
 import { mergeDraft, normalizeHost } from "../src/settings.js";
 import { absorb, normalizeVendor } from "../src/vendorModel.js";
-import { buildTokenUrl, parseYonJson, sign } from "../src/yonsuite.js";
+import { buildTokenUrl, detailLooksMissing, parseYonJson, sign } from "../src/yonsuite.js";
 
 test("用友签名只编码一次", () => {
   const secret = "top-secret";
@@ -50,6 +50,11 @@ test("超过安全整数的供应商 ID 按字符串保留", () => {
   assert.equal(parsed.id, "2639529439088607232");
   assert.equal(parsed.taxrate, 13);
   assert.equal(parsed.name, "编号 913205000000000000 不变");
+});
+
+test("单个供应商详情不存在不会被当成接口缺失", () => {
+  assert.equal(detailLooksMissing(new Error("没有查询到供应商，请检查id是否正确：id=1（999）")), false);
+  assert.equal(detailLooksMissing(Object.assign(new Error("接口不存在"), { httpStatus: 404 })), true);
 });
 
 test("数据中心地址会去掉网关后缀", () => {
