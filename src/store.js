@@ -438,7 +438,12 @@ async function createMssqlStore(config) {
   }
 
   function connectionDead(error) {
-    return /LoggedIn state|ECONNRESET|Connection lost|ConnectionError|socket hang up|EPIPE/i.test(error?.message || "");
+    const text = `${error?.code || ""} ${error?.message || ""} ${error?.originalError?.message || ""}`;
+    return /LoggedIn state|ECONNRESET|Connection lost|ConnectionError|socket hang up|EPIPE|ECONNCLOSED/i.test(text);
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async function reconnect() {
@@ -452,13 +457,24 @@ async function createMssqlStore(config) {
   }
 
   async function withPool(fn) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (!connectionDead(error)) throw error;
-      await reconnect();
-      return await fn();
+    let last;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        return await fn();
+      } catch (error) {
+        last = error;
+        if (!connectionDead(error) || attempt === 4) throw error;
+        console.warn(`[store] SQL Server 连接中断，${attempt + 1}/4 次后重试：${error.message}`);
+        await sleep(1200 * (attempt + 1));
+        try {
+          await reconnect();
+        } catch (connectError) {
+          last = connectError;
+          console.warn(`[store] 重连失败：${connectError.message}`);
+        }
+      }
     }
+    throw last;
   }
 
   function bindFilter(req, filter) {
@@ -748,7 +764,7 @@ async function createMssqlStore(config) {
       for (const row of unique) {
         const item = openJsonVendor(row);
         const size = (item.payloadJson?.length || 0) + 400;
-        if (chunk.length && (chunk.length >= 40 || bytes + size > 280000)) {
+        if (chunk.length && (chunk.length >= 25 || bytes + size > 120000)) {
           chunks.push(chunk);
           chunk = [];
           bytes = 0;
@@ -757,8 +773,15 @@ async function createMssqlStore(config) {
         bytes += size;
       }
       if (chunk.length) chunks.push(chunk);
-      for (const part of chunks) {
-        const payload = JSON.stringify(part);
+      for (let index = 0; index < chunks.length; index += 1) {
+        if (index > 0 && index % 8 === 0) {
+          try {
+            await reconnect();
+          } catch (error) {
+            console.warn(`[store] 定期重连失败：${error.message}`);
+          }
+        }
+        const payload = JSON.stringify(chunks[index]);
         await withPool(async () => {
           await request()
             .input("payload", mssql.NVarChar(mssql.MAX), payload)
