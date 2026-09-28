@@ -211,6 +211,7 @@ async function openVendor(vendorId) {
     body.push(renderSubtable("联系人", vendor.contacts));
     body.push(renderSubtable("银行账户", vendor.banks));
     body.push(renderSubtable("地址", vendor.addresses));
+    body.push(renderSubtable("适用组织", vendor.vendorOrgs));
     body.push(renderSubtable("适用范围", vendor.applyRanges));
     body.push(el("h3", { class: "subhead" }, ["原始 JSON"]));
     body.push(el("pre", { class: "raw" }, [JSON.stringify(vendor.raw, null, 2)]));

@@ -181,11 +181,52 @@ export class YonSuiteClient {
   }
 }
 
+/**
+ * 用友供应商 ID 超过 JS 安全整数。先把 16 位及以上的整型改成字符串再解析，
+ * 避免 2639529439088607232 被收成 2639529439088607000 后详情接口查不到。
+ */
+export function parseYonJson(text) {
+  if (!text) return {};
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === "\"") inString = false;
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === "-" || (char >= "0" && char <= "9")) {
+      let end = index;
+      if (text[end] === "-") end += 1;
+      const digitsStart = end;
+      while (end < text.length && text[end] >= "0" && text[end] <= "9") end += 1;
+      const follower = text[end] || "";
+      const isFloat = follower === "." || follower === "e" || follower === "E";
+      if (!isFloat && end - digitsStart >= 16) {
+        out += `"${text.slice(index, end)}"`;
+        index = end - 1;
+        continue;
+      }
+    }
+    out += char;
+  }
+  return JSON.parse(out);
+}
+
 async function parseJson(response) {
   const text = await response.text();
   if (!text) return {};
   try {
-    return JSON.parse(text);
+    return parseYonJson(text);
   } catch {
     throw new Error(`用友返回的不是 JSON（HTTP ${response.status}）`);
   }

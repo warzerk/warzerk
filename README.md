@@ -37,22 +37,26 @@
 cp .env.example .env
 ```
 
-默认 `DB_DRIVER=sqlite`，数据在 `data/vendors.db`，方便先把页面跑起来。
+默认可以先用 `DB_DRIVER=sqlite`。当前这套环境连的是公司 SQL Server 库 `ai_dev`：
 
-接到 SQL Server 时改成：
+- 公网：`202.101.1.182:15333`
+- 公司内网：`126.202.202.246:1433`
+
+用友数据中心是 `https://c3.yonyoucloud.com`。AppKey、AppSecret 和数据库密码只放在本机 `.env`，不要提交到仓库。程序部署在公司内网时，把 `MSSQL_SERVER` 改成 `126.202.202.246`，`MSSQL_PORT` 改成 `1433`。
 
 ```bash
 DB_DRIVER=mssql
-MSSQL_SERVER=192.168.1.10
-MSSQL_PORT=1433
-MSSQL_DATABASE=yonsuite
-MSSQL_USER=vendor_app
+MSSQL_SERVER=202.101.1.182
+MSSQL_PORT=15333
+MSSQL_DATABASE=ai_dev
+MSSQL_USER=sa
 MSSQL_PASSWORD=请填写
 MSSQL_ENCRYPT=true
 MSSQL_TRUST_CERT=true
+YONSUITE_HOST=https://c3.yonyoucloud.com
 ```
 
-数据库要事先建好。`vendors`、`app_settings`、`sync_runs`、`sync_state` 这些表会在启动时自动创建。供应商的索引列用于搜索，接口返回的完整 JSON 存在 `payload` 里，所以自定义项和后来新增的字段也不会丢。
+库 `ai_dev` 要事先存在。`vendors`、`app_settings`、`sync_runs`、`sync_state` 会在启动时自动创建。供应商的索引列用于搜索，接口返回的完整 JSON 存在 `payload` 里，所以自定义项和后来新增的字段也不会丢。用友供应商 ID 超过 JavaScript 安全整数，程序会按字符串保存，避免详情接口因 ID 被截断而查不到。
 
 每天自动增量（服务器本地时间，建议 `TZ=Asia/Shanghai`）：
 

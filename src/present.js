@@ -22,6 +22,8 @@ export const ADDRESS_PATHS = [
   "vendorextends.vendorAddresses",
 ];
 
+export const ORG_PATHS = ["vendorOrgs", "crowd.crowdOrgs"];
+
 export function flattenScalars(value, prefix = "", out = {}) {
   if (Array.isArray(value)) return out;
   if (value && typeof value === "object") {
@@ -114,6 +116,7 @@ export function presentVendor(record) {
     contacts: tableFromRows(firstArray(payload, CONTACT_PATHS)),
     banks: tableFromRows(firstArray(payload, BANK_PATHS)),
     addresses: tableFromRows(firstArray(payload, ADDRESS_PATHS)),
+    vendorOrgs: tableFromRows(firstArray(payload, ORG_PATHS)),
     applyRanges: tableFromRows(Array.isArray(payload.applyRanges) ? payload.applyRanges : []),
     raw: payload,
   };

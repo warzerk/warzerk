@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { formatCell, labelFor, preferredIndex } from "./fields.js";
-import { ADDRESS_PATHS, BANK_PATHS, CONTACT_PATHS, firstArray, flattenScalars, tableFromRows } from "./present.js";
+import { ADDRESS_PATHS, BANK_PATHS, CONTACT_PATHS, ORG_PATHS, firstArray, flattenScalars, tableFromRows } from "./present.js";
 
 function sortKeys(keys) {
   return [...keys].sort((a, b) => preferredIndex(a) - preferredIndex(b) || a.localeCompare(b, "zh-CN"));
@@ -82,6 +82,7 @@ export async function buildVendorWorkbook(records) {
   addChildSheet(workbook, "联系人", records, CONTACT_PATHS);
   addChildSheet(workbook, "银行账户", records, BANK_PATHS);
   addChildSheet(workbook, "地址", records, ADDRESS_PATHS);
+  addChildSheet(workbook, "适用组织", records, ORG_PATHS);
   const ranges = [];
   for (const record of records) {
     const rows = Array.isArray(record.payload?.applyRanges) ? record.payload.applyRanges : [];

@@ -26,6 +26,8 @@ export function loadConfig(env = process.env) {
       password: env.MSSQL_PASSWORD || "",
       encrypt: env.MSSQL_ENCRYPT !== "false",
       trustServerCertificate: env.MSSQL_TRUST_CERT !== "false",
+      connectionTimeout: Number(env.MSSQL_CONNECT_TIMEOUT || 20000),
+      requestTimeout: Number(env.MSSQL_REQUEST_TIMEOUT || 60000),
     },
     detailPath: env.YONSUITE_DETAIL_PATH || "/yonbip/digitalModel/vendor/detail",
     detailMethod: String(env.YONSUITE_DETAIL_METHOD || "GET").toUpperCase() === "POST" ? "POST" : "GET",

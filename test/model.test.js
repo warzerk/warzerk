@@ -3,7 +3,7 @@ import test from "node:test";
 import { formatCell, labelFor } from "../src/fields.js";
 import { mergeDraft, normalizeHost } from "../src/settings.js";
 import { absorb, normalizeVendor } from "../src/vendorModel.js";
-import { buildTokenUrl, sign } from "../src/yonsuite.js";
+import { buildTokenUrl, parseYonJson, sign } from "../src/yonsuite.js";
 
 test("用友签名只编码一次", () => {
   const secret = "top-secret";
@@ -43,6 +43,13 @@ test("枚举和嵌套字段显示成中文", () => {
   assert.equal(formatCell("freezestatus", "0"), "正常");
   assert.equal(formatCell("supplyType", 0), "企业");
   assert.equal(labelFor("vendorextends.taxrate"), "业务信息 · 进项税率");
+});
+
+test("超过安全整数的供应商 ID 按字符串保留", () => {
+  const parsed = parseYonJson('{"id":2639529439088607232,"taxrate":13,"name":"编号 913205000000000000 不变"}');
+  assert.equal(parsed.id, "2639529439088607232");
+  assert.equal(parsed.taxrate, 13);
+  assert.equal(parsed.name, "编号 913205000000000000 不变");
 });
 
 test("数据中心地址会去掉网关后缀", () => {

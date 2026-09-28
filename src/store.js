@@ -422,6 +422,8 @@ async function createMssqlStore(config) {
     database: config.mssql.database,
     user: config.mssql.user,
     password: config.mssql.password,
+    connectionTimeout: config.mssql.connectionTimeout,
+    requestTimeout: config.mssql.requestTimeout,
     options: {
       encrypt: config.mssql.encrypt,
       trustServerCertificate: config.mssql.trustServerCertificate,
