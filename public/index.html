@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>供应商档案</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">供</span>
+        <div>
+          <strong>供应商档案</strong>
+          <p>用友 YonSuite · 同步到公司自己的数据库</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="页面">
+        <button type="button" class="nav-btn active" data-view="vendors">查询</button>
+        <button type="button" class="nav-btn" data-view="settings">连接设置</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="view-vendors" class="view">
+        <div class="toolbar">
+          <div class="filters">
+            <label class="search">
+              <span>搜索</span>
+              <input id="keyword" type="search" placeholder="编码、名称、信用代码、电话、组织" autocomplete="off" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select id="stopped">
+                <option value="">全部</option>
+                <option value="0">启用</option>
+                <option value="1">停用</option>
+              </select>
+            </label>
+            <label>
+              <span>每页</span>
+              <select id="page-size">
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="button" id="column-mode" class="ghost">表格全部列</button>
+            <button type="button" id="sync-full" class="primary">全量同步</button>
+            <button type="button" id="sync-incremental" class="ghost">增量同步</button>
+            <a id="export-link" class="button ghost" href="/api/export/vendors.xlsx">导出 Excel</a>
+          </div>
+        </div>
+
+        <div id="banner" class="banner" hidden role="status"></div>
+        <div id="stats" class="stats"></div>
+
+        <section class="panel">
+          <div class="table-wrap">
+            <table id="vendor-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button type="button" id="prev-page" class="ghost">上一页</button>
+            <span id="page-label">第 1 页</span>
+            <button type="button" id="next-page" class="ghost">下一页</button>
+          </div>
+        </section>
+
+        <section class="history">
+          <h2>同步记录</h2>
+          <ol id="history"></ol>
+        </section>
+      </section>
+
+      <section id="view-settings" class="view" hidden>
+        <div class="settings-grid">
+          <form id="settings-form" class="panel form">
+            <h2>用友开放平台</h2>
+            <p class="lede">在 YonSuite 自建应用里拿到 AppKey、AppSecret，并授权「供应商档案列表查询」。数据中心地址是开放平台所在域名，例如 <code>https://c1.yonyoucloud.com</code>。</p>
+            <label>
+              <span>数据中心地址</span>
+              <input name="gatewayHost" required placeholder="https://c1.yonyoucloud.com" />
+            </label>
+            <label>
+              <span>AppKey</span>
+              <input name="appKey" required autocomplete="off" />
+            </label>
+            <label>
+              <span>AppSecret</span>
+              <input name="appSecret" type="password" autocomplete="new-password" placeholder="已保存时留空表示不修改" />
+              <small id="secret-hint"></small>
+            </label>
+            <div class="split">
+              <label>
+                <span>每页条数</span>
+                <input name="pageSize" type="number" min="10" max="500" value="100" />
+              </label>
+              <label class="check">
+                <input name="enrichDetail" type="checkbox" />
+                <span>同步时按供应商补拉详情（银行、联系人等子表）</span>
+              </label>
+            </div>
+            <label>
+              <span>管理组织 ID（可选）</span>
+              <input name="org" placeholder="例如 [666666]，留空表示不按组织筛选" />
+            </label>
+            <label>
+              <span>使用组织 ID（可选）</span>
+              <input name="vendorOrg" placeholder="个别租户必填，格式与开放平台示例一致" />
+            </label>
+            <div class="actions">
+              <button type="submit" class="primary">保存设置</button>
+              <button type="button" id="test-connection" class="ghost">测试连接</button>
+            </div>
+            <p id="settings-message" class="form-message" hidden></p>
+          </form>
+
+          <aside class="panel aside">
+            <h2>本地数据库</h2>
+            <p id="db-line" class="lede">正在读取……</p>
+            <p id="schedule-line" class="lede"></p>
+            <h2>这一步之后</h2>
+            <ol class="roadmap">
+              <li>当前：把供应商全部字段同步到本地，查询、看详情、导出 Excel，并按时间戳做增量。</li>
+              <li>下一步：粘贴一段供应商文字，识别后调用用友供应商保存接口自动新增。</li>
+              <li>再下一步：页面删除时同步删除用友里同一编码；若已被单据引用，只提示、不删除。</li>
+            </ol>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <div id="drawer" class="drawer" hidden>
+      <button type="button" class="drawer-backdrop" data-close="drawer" aria-label="关闭详情"></button>
+      <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+        <header>
+          <div>
+            <p id="drawer-kicker"></p>
+            <h2 id="drawer-title">供应商</h2>
+          </div>
+          <button type="button" id="drawer-close" class="ghost">关闭</button>
+        </header>
+        <div id="drawer-body"></div>
+      </aside>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

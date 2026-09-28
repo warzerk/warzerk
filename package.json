@@ -1,0 +1,20 @@
+{
+  "name": "yonsuite-vendor-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "用友 YonSuite 供应商档案查询、本地库同步与 Excel 导出",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "mssql": "^11.0.1"
+  }
+}
