@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>供应商数据中心</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <aside>
+    <div class="brand"><span class="brandmark">Y</span><div>供应商<span>数据中心</span></div></div>
+    <nav><a class="active" href="#"><i>▦</i>供应商管理</a><a href="#"><i>↻</i>同步记录</a><a href="#"><i>⚙</i>系统配置</a></nav>
+    <div class="phase"><small>项目进度</small><strong>第一阶段 · 数据查询</strong><div><span></span></div><p>YonSuite 数据同步与展示</p></div>
+    <div class="user"><b>管</b><div><strong>系统管理员</strong><span>admin@company.com</span></div><button>⋮</button></div>
+  </aside>
+  <main>
+    <header><div><h1>供应商管理</h1><p>统一查询、同步并管理 YonSuite 供应商数据</p></div><div class="head-actions"><button class="icon">?</button><button class="icon">♢<em></em></button></div></header>
+    <section class="metrics">
+      <article><span class="metric-icon purple">▤</span><div><small>供应商总数</small><strong id="total">—</strong><p><b>↑ 12</b> 较昨日新增</p></div></article>
+      <article><span class="metric-icon green">✓</span><div><small>启用供应商</small><strong id="activeCount">—</strong><p>占比 <b id="activeRate">—</b></p></div></article>
+      <article><span class="metric-icon blue">↻</span><div><small>最近同步</small><strong class="time">今天 08:32</strong><p><i class="ok"></i> 同步成功</p></div></article>
+      <article><span class="metric-icon orange">⌁</span><div><small>数据源</small><strong class="source">YonSuite</strong><p><i class="ok"></i> 连接正常</p></div></article>
+    </section>
+    <section class="panel">
+      <div class="toolbar"><div class="search"><span>⌕</span><input id="search" placeholder="搜索供应商名称、编码、联系人或统一社会信用代码"></div><select id="status"><option value="">全部状态</option><option>启用</option><option>停用</option></select><button id="filter" class="secondary">筛选</button><span class="grow"></span><button id="export" class="secondary">⇩&nbsp; 导出 Excel</button><button id="sync" class="primary">↻&nbsp; 同步数据</button></div>
+      <div class="table-wrap"><table><thead><tr><th><input type="checkbox"></th><th>供应商编码</th><th>供应商名称</th><th>状态</th><th>供应商分类</th><th>联系人</th><th>联系电话</th><th>统一社会信用代码</th><th>更新时间</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <footer><span id="range">—</span><div class="pages"><button disabled>‹</button><button class="current">1</button><button>2</button><button>3</button><span>…</span><button>24</button><button>›</button></div><div>每页 <select><option>20 条</option></select></div></footer>
+    </section>
+    <p class="footnote"><span>↻</span> 数据每日自动同步一次，下次同步时间：明天 08:00</p>
+  </main>
+  <div id="toast"></div><script src="/app.js"></script>
+</body></html>
